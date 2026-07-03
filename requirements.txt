@@ -1,2 +1,6 @@
-vibe-trading-ai
-pydantic
+numpy==2.5.0
+protobuf==7.35.1
+pydantic==2.13.4
+pyotp==2.10.0
+robin_stocks==3.4.0
+yfinance==1.5.1
