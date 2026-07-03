@@ -38,7 +38,7 @@ def calculate_wilder_rsi(series, period=14):
 def fetch_market_analytics(ticker: str, period_rsi: int = 14) -> dict:
     """
     Fetches unadjusted historical daily data and computes:
-    Wilder RSI, 52-Week High/Low, Run-up, Drawdown, Volume % of SMA20, and Moving Average stack.
+    Wilder RSI, 52-Week High/Low, Run-up, Drawdown, Volume % of SMA20, SMA, and VWSMA stacks.
     """
     print(f"📈 Downloading unadjusted historical market data arrays for {ticker}...")
     
@@ -69,11 +69,20 @@ def fetch_market_analytics(ticker: str, period_rsi: int = 14) -> dict:
     volume_sma20 = float(volume_series.rolling(window=20).mean().iloc[-1])
     volume_pct_of_sma20 = (latest_volume / volume_sma20) * 100
     
+    # Simple Moving Average Stack Calculation
     sma5 = float(close_series.rolling(window=5).mean().iloc[-1])
     sma20 = float(close_series.rolling(window=20).mean().iloc[-1])
     sma50 = float(close_series.rolling(window=50).mean().iloc[-1])
     sma100 = float(close_series.rolling(window=100).mean().iloc[-1])
     sma200 = float(close_series.rolling(window=200).mean().iloc[-1])
+    
+    # Volume-Weighted Simple Moving Average (VWSMA) Stack Calculation
+    vp = close_series * volume_series
+    vwsma5 = float(vp.rolling(window=5).sum().iloc[-1] / volume_series.rolling(window=5).sum().iloc[-1])
+    vwsma20 = float(vp.rolling(window=20).sum().iloc[-1] / volume_series.rolling(window=20).sum().iloc[-1])
+    vwsma50 = float(vp.rolling(window=50).sum().iloc[-1] / volume_series.rolling(window=50).sum().iloc[-1])
+    vwsma100 = float(vp.rolling(window=100).sum().iloc[-1] / volume_series.rolling(window=100).sum().iloc[-1])
+    vwsma200 = float(vp.rolling(window=200).sum().iloc[-1] / volume_series.rolling(window=200).sum().iloc[-1])
     
     return {
         "latest_close": latest_close,
@@ -85,11 +94,11 @@ def fetch_market_analytics(ticker: str, period_rsi: int = 14) -> dict:
         "latest_volume": latest_volume,
         "volume_sma20": round(volume_sma20, 2),
         "volume_pct_of_sma20": round(volume_pct_of_sma20, 2),
-        "sma5": round(sma5, 2),
-        "sma20": round(sma20, 2),
-        "sma50": round(sma50, 2),
-        "sma100": round(sma100, 2),
-        "sma200": round(sma200, 2)
+        "sma5": round(sma5, 2), "vwsma5": round(vwsma5, 2),
+        "sma20": round(sma20, 2), "vwsma20": round(vwsma20, 2),
+        "sma50": round(sma50, 2), "vwsma50": round(vwsma50, 2),
+        "sma100": round(sma100, 2), "vwsma100": round(vwsma100, 2),
+        "sma200": round(sma200, 2), "vwsma200": round(vwsma200, 2)
     }
 
 def run_rsi_strategy(ticker: str, selected_model: str):
@@ -131,11 +140,11 @@ def run_rsi_strategy(ticker: str, selected_model: str):
             "volume_sma20": analytics["volume_sma20"],
             "volume_pct_of_sma20": analytics["volume_pct_of_sma20"],
             "moving_averages": {
-                "sma5": analytics["sma5"],
-                "sma20": analytics["sma20"],
-                "sma50": analytics["sma50"],
-                "sma100": analytics["sma100"],
-                "sma200": analytics["sma200"]
+                "sma5": analytics["sma5"], "vwsma5": analytics["vwsma5"],
+                "sma20": analytics["sma20"], "vwsma20": analytics["vwsma20"],
+                "sma50": analytics["sma50"], "vwsma50": analytics["vwsma50"],
+                "sma100": analytics["sma100"], "vwsma100": analytics["vwsma100"],
+                "sma200": analytics["sma200"], "vwsma200": analytics["vwsma200"]
             },
             "strategy_rules": {
                 "buy_thresholds": {
@@ -157,7 +166,7 @@ def run_rsi_strategy(ticker: str, selected_model: str):
         return
 
     # 3. Connect to selected Gemini Model
-    print(f"🧠 Piping analytics matrix into {selected_model}...")
+    print(f"🧠 Piping analytics matrix into engine...")
     api_key = os.getenv("GEMINI_API_KEY", os.getenv("GOOGLE_API_KEY"))
     if not api_key:
         print("❌ Error: Missing API keys in environment.", file=sys.stderr)
@@ -198,37 +207,35 @@ def run_rsi_strategy(ticker: str, selected_model: str):
         
         decision = json.loads(response.text)
         current_rsi = strategy_context['rsi_14_daily']
+        ma = strategy_context['moving_averages']
         
         # 4. Streamlined Conditional Output Presentation
         print("\n================ 🏹 STRATEGY ENGINE EVALUATION ================")
-        print(f"🤖 ACTIVE MODEL ENGINE:     {selected_model}")
         print(f"📊 ASSET UNDER INSPECTION:  {ticker.upper()}")
         print(f"💵 DAILY CLOSING PRICE:     ${strategy_context['current_price']:.2f}")
         print(f"⏱️  DAILY RSI (14):          {current_rsi}")
         
-        print("-------------------- MOVING AVERAGES --------------------")
+        print("-------------------- MOVING AVERAGES [SMA | VWSMA] ------")
         if current_rsi >= 50:
-            print(f"🔹 SMA (5-DAY):            ${strategy_context['moving_averages']['sma5']:.2f}")
-            print(f"🔹 SMA (20-DAY):           ${strategy_context['moving_averages']['sma20']:.2f}")
+            print(f"🔹 5-DAY:                  ${ma['sma5']:.2f}  |  ${ma['vwsma5']:.2f}")
+            print(f"🔹 20-DAY:                 ${ma['sma20']:.2f}  |  ${ma['vwsma20']:.2f}")
         
-        print(f"🔹 SMA (50-DAY):           ${strategy_context['moving_averages']['sma50']:.2f}")
+        print(f"🔹 50-DAY:                 ${ma['sma50']:.2f}  |  ${ma['vwsma50']:.2f}")
         
         if current_rsi < 50:
-            print(f"🔹 SMA (100-DAY):          ${strategy_context['moving_averages']['sma100']:.2f}")
-            print(f"🔹 SMA (200-DAY):          ${strategy_context['moving_averages']['sma200']:.2f}")
+            print(f"🔹 100-DAY:                ${ma['sma100']:.2f}  |  ${ma['vwsma100']:.2f}")
+            print(f"🔹 200-DAY:                ${ma['sma200']:.2f}  |  ${ma['vwsma200']:.2f}")
             
         print("-------------------- 52-WEEK METRICS --------------------")
-        print(f"🔝 52-WEEK HIGH:            ${strategy_context['high_52w']:.2f}")
-        print(f"🔙 52-WEEK LOW:             ${strategy_context['low_52w']:.2f}")
+        print(f"📅 52-WEEK RANGE:           [${strategy_context['low_52w']:.2f} - ${strategy_context['high_52w']:.2f}]")
         print(f"📈 RUN-UP FROM LOW:         {strategy_context['run_up_from_52w_low_pct']}%")
         print(f"📉 DRAWDOWN FROM HIGH:      {strategy_context['drawdown_from_52w_high_pct']}%")
         print("-------------------- VOLUME METRICS ---------------------")
-        print(f"📊 LATEST SESSION VOLUME:   {latest_volume:,.0f}" if 'latest_volume' in locals() else f"📊 LATEST SESSION VOLUME:   {strategy_context['latest_volume']:,}")
+        print(f"📊 LATEST SESSION VOLUME:   {strategy_context['latest_volume']:,}")
         print(f"🌊 VOLUME SMA (20-DAY):    {strategy_context['volume_sma20']:,}")
         print(f"⚡ VOLUME % OF SMA (20):    {strategy_context['volume_pct_of_sma20']}%")
         print("------------------- ENGINE ALGO VECTOR ------------------")
         print(f"🤖 TARGET SIGNAL VECTOR:    {decision.get('action')}")
-        print(f"🎯 STRATEGY CRITERIA MATCHED: {decision.get('strategy_match')}")
         print(f"📝 SYSTEM RATIONALE:        {decision.get('reasoning')}")
         print("===============================================================")
         
@@ -238,7 +245,7 @@ def run_rsi_strategy(ticker: str, selected_model: str):
         print(f"❌ Strategy pipeline execution failure: {e}", file=sys.stderr)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Gemini Multi-Model Options Configuration Trading Engine")
+    parser = argparse.ArgumentParser(description="Gemini Clean Terminal Matrix Engine Configuration")
     parser.add_argument("ticker", nargs="?", default="SPY", help="Stock ticker symbol (default: SPY)")
     parser.add_argument(
         "--model", 
@@ -248,7 +255,6 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     
-    # Map the simplified parameter choices back to explicit API version parameters
     model_map = {
         "3.5-flash": "gemini-3.5-flash",
         "3.1-flash-lite": "gemini-3.1-flash-lite"
