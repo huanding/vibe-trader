@@ -10,3 +10,5 @@ Dependencies:
 
 vibe-trading connector check 
 vibe-trading connector authorize robinhood-live-mcp
+
+vibe-trading run -p "Use account 12345 and explicitly invoke the get_equity_positions tool to show my holdings" --max-iter 5
