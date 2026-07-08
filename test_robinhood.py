@@ -159,7 +159,8 @@ if active_position:
 else:
     # State: FLAT CASH -> Track market entry drawdown
     print(f"\n>>> STATE: FLAT CASH")
-    if drawdown >= 5.0:
+    DRAWDOWN_TRESHOLD = 2.0
+    if drawdown >= DRAWDOWN_TRESHOLD:
         print("🔥 DRAWDOWN TRIGGERED! Ordering fractional entry...")
         order_payload = {
             "name": "place_equity_order",
@@ -173,7 +174,7 @@ else:
             }
         }
     else:
-        print("No buy signal triggered. S&P 500 premium remains outside the 5% threshold.")
+        print(f"No buy signal triggered. S&P 500 premium remains outside the {DRAWDOWN_TRESHOLD}% threshold.")
 
 
 # --- STEP 6: EXECUTE ROUTED TRADING ORDER ---
