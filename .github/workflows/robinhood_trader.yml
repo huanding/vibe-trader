@@ -29,8 +29,9 @@ jobs:
 
       - name: Execute Strategy Loop
         env:
+          ROBINHOOD_CLIENT_ID: ${{ secrets.ROBINHOOD_CLIENT_ID }}
           ROBINHOOD_ACCOUNT_NUMBER: ${{ secrets.ROBINHOOD_ACCOUNT_NUMBER }}
           ROBINHOOD_ACCESS_TOKEN: ${{ secrets.ROBINHOOD_ACCESS_TOKEN }}
           ROBINHOOD_REFRESH_TOKEN: ${{ secrets.ROBINHOOD_REFRESH_TOKEN }}
         run: |
-          python ./test_robinhood.py
+          python ./robinhood_moc_strategy.py

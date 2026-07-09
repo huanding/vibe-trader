@@ -2,58 +2,20 @@ import os
 import json
 import requests
 import yfinance as yf
+from robinhood_auth import RobinhoodAuth # <-- Import the new manager class
 
 # Strategy Configuration
 SYMBOL = "SPY"
 GATEWAY_URL = "https://agent.robinhood.com/mcp/trading"
 
-
-# --- STEP 1: SECURELY EXTRACT ENVIRONMENT STRINGS ---
-ACCOUNT_NUMBER = os.getenv("ROBINHOOD_ACCOUNT_NUMBER")
-ACCESS_TOKEN = os.getenv("ROBINHOOD_ACCESS_TOKEN")
-REFRESH_TOKEN = os.getenv("ROBINHOOD_REFRESH_TOKEN")
-
-if not ACCOUNT_NUMBER:
-    print("Security Exception: ROBINHOOD_ACCOUNT_NUMBER environment variable is missing.")
+# --- STEP 1: INITIALIZE AUTH MANAGEMENT ---
+try:
+    auth = RobinhoodAuth()
+except RuntimeError as e:
+    print(e)
     exit(1)
 
-
-# --- STEP 2: DEFINE OAUTH TOKEN ROTATION BACKUP ---
-def refresh_access_token():
-    if not REFRESH_TOKEN:
-        print("Rotation Error: Cannot refresh token. ROBINHOOD_REFRESH_TOKEN is not set.")
-        return None
-
-    print("Attempting automatic session rotation via Robinhood Auth Authority...")
-    
-    # Robinhood API OAuth2 Token endpoint
-    oauth_url = "https://api.robinhood.com/oauth2/token/"
-    
-    payload = {
-        "grant_type": "refresh_token",
-        "refresh_token": REFRESH_TOKEN,
-        "client_id": "c825b4ab-1407-4e6e-8214-e4f691234567" # Fallback public standard client ID if needed
-    }
-    headers = {
-        "Content-Type": "application/x-www-form-urlencoded"
-    }
-    
-    try:
-        response = requests.post(oauth_url, data=payload, headers=headers)
-        if response.status_code == 200:
-            token_metadata = response.json()
-            new_token = token_metadata.get("access_token")
-            print("Rotation Success! New active bearer token issued.")
-            return new_token
-        else:
-            print(f"OAuth Server rejected refresh: Status {response.status_code} - {response.text}")
-            return None
-    except Exception as e:
-        print(f"Failed to communicate with token authority: {e}")
-        return None
-
-
-# --- STEP 3: FETCH MARKET DATA VIA YFINANCE ---
+# --- STEP 2: FETCH MARKET DATA VIA YFINANCE ---
 print(f"Fetching market data for {SYMBOL}...")
 ticker = yf.Ticker(SYMBOL)
 info = ticker.info
@@ -70,44 +32,37 @@ print(f"{SYMBOL} Current Price: ${current_price:.2f}")
 print(f"{SYMBOL} 52-Week High: ${high_52week:.2f}")
 print(f"Current Drawdown: {drawdown:.2f}%")
 
-
-# --- STEP 4: CHECK ROBINHOOD HOLDINGS WITH EXPIRED CAPTURE ---
-if not ACCESS_TOKEN:
-    ACCESS_TOKEN = refresh_access_token()
-    if not ACCESS_TOKEN:
-        print("Fatal exception: Missing valid authorization to poll broker endpoints.")
-        exit(1)
-
-headers = {
-    "Authorization": f"Bearer {ACCESS_TOKEN}",
-    "Content-Type": "application/json"
-}
-
+# --- STEP 3: CHECK ROBINHOOD HOLDINGS WITH EXPIRED CAPTURE ---
 positions_payload = {
     "jsonrpc": "2.0",
     "method": "tools/call",
     "params": {
         "name": "get_equity_positions",
-        "arguments": {"account_number": ACCOUNT_NUMBER}
+        "arguments": {"account_number": auth.account_number}
     },
     "id": 1
 }
 
 print("\nChecking live portfolio positions...")
-pos_response = requests.post(GATEWAY_URL, json=positions_payload, headers=headers)
+try:
+    headers = auth.get_headers()
+    pos_response = requests.post(GATEWAY_URL, json=positions_payload, headers=headers)
+except RuntimeError as e:
+    print(e)
+    exit(1)
 
-# If our access token expired mid-transit, catch it and refresh immediately
+# Mid-transit expiry mitigation loop
 if pos_response.status_code == 401:
     print("Warning: Access token expired or rejected (401). Retrying with token rotation...")
-    ACCESS_TOKEN = refresh_access_token()
-    if ACCESS_TOKEN:
-        headers["Authorization"] = f"Bearer {ACCESS_TOKEN}"
+    if auth.refresh_access_token():
+        headers = auth.get_headers()
         pos_response = requests.post(GATEWAY_URL, json=positions_payload, headers=headers)
 
 if pos_response.status_code != 200:
     print(f"API Error fetching positions: Status {pos_response.status_code}")
     exit(1)
 
+# --- STEP 4: DATA PARSING ---
 try:
     raw_text = pos_response.text
     if raw_text.startswith("event:"):
@@ -123,13 +78,11 @@ except Exception as e:
     print(f"Data Parser Warning: Assuming empty portfolio positions list. Detail: {e}")
     positions = []
 
-
 # --- STEP 5: EVALUATE STRATEGY LOGIC STATE MACHINE ---
 active_position = next((p for p in positions if p.get("symbol") == SYMBOL), None)
 order_payload = None
 
 if active_position:
-    # State: POSITION OPEN -> Track profit target
     avg_buy_price = float(active_position["average_buy_price"])
     shares_available = float(active_position.get("shares_available_for_sells", 0))
     current_profit_pct = ((current_price - avg_buy_price) / avg_buy_price) * 100
@@ -143,7 +96,7 @@ if active_position:
             order_payload = {
                 "name": "place_equity_order",
                 "arguments": {
-                    "account_number": ACCOUNT_NUMBER,
+                    "account_number": auth.account_number,
                     "symbol": SYMBOL,
                     "side": "sell",
                     "type": "market",
@@ -157,15 +110,14 @@ if active_position:
         print("Holding position. Waiting for asset appreciation to reach +10.00%.")
 
 else:
-    # State: FLAT CASH -> Track market entry drawdown
     print(f"\n>>> STATE: FLAT CASH")
-    DRAWDOWN_TRESHOLD = 2.0
-    if drawdown >= DRAWDOWN_TRESHOLD:
+    DRAWDOWN_THRESHOLD = 2.0
+    if drawdown >= DRAWDOWN_THRESHOLD:
         print("🔥 DRAWDOWN TRIGGERED! Ordering fractional entry...")
         order_payload = {
             "name": "place_equity_order",
             "arguments": {
-                "account_number": ACCOUNT_NUMBER,
+                "account_number": auth.account_number,
                 "symbol": SYMBOL,
                 "side": "buy",
                 "type": "market",
@@ -174,8 +126,7 @@ else:
             }
         }
     else:
-        print(f"No buy signal triggered. S&P 500 premium remains outside the {DRAWDOWN_TRESHOLD}% threshold.")
-
+        print(f"No buy signal triggered. S&P 500 premium remains outside the {DRAWDOWN_THRESHOLD}% threshold.")
 
 # --- STEP 6: EXECUTE ROUTED TRADING ORDER ---
 if order_payload:
