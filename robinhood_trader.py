@@ -37,7 +37,7 @@ class RobinhoodTrader:
         if response.status_code != 200:
             print(f"API Error fetching positions: Status {response.status_code}")
             return []
-
+        print("DEBUG RAW RESPONSE:", response.text)    
         try:
             raw_text = response.text
             if raw_text.startswith("event:"):
