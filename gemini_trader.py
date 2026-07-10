@@ -4,9 +4,9 @@ import json
 import argparse
 import numpy as np
 import yfinance as yf
-import robin_stocks.robinhood as rh
 from google import genai
 from google.genai import types
+from google.genai.errors import APIError
 from pydantic import BaseModel, Field
 
 # 1. Define the rigid decision schema
@@ -102,35 +102,14 @@ def fetch_market_analytics(ticker: str, period_rsi: int = 14) -> dict:
     }
 
 def run_rsi_strategy(ticker: str, selected_model: str):
-    # 2. Authenticate and bootstrap robin_stocks session state
-    token_path = os.path.join(os.path.dirname(__file__), "robinhood_token.json")
-    if not os.path.exists(token_path):
-        print(f"❌ Missing token file at: {token_path}", file=sys.stderr)
-        return
-
+    print(f"📡 Gathering metrics payload...")
     try:
-        token_data = json.load(open(token_path))
-        token = token_data.get("access_token") if isinstance(token_data, dict) else token_data
-    except Exception as e:
-        print(f"❌ Error parsing token JSON: {e}", file=sys.stderr)
-        return
-    
-    rh.helper.set_login_state(True)
-    rh.helper.SESSION.headers["Authorization"] = f"Bearer {token}"
-
-    print(f"📡 Pulling live account telemetry from Robinhood...")
-    try:
-        profile = rh.profiles.load_account_profile()
-        account_data = profile[0] if isinstance(profile, list) else profile
-        buying_power = float(account_data.get('buying_power', account_data.get('cash', 0.0)))
-        
         analytics = fetch_market_analytics(ticker, period_rsi=14)
         current_price = analytics["latest_close"]
         
         strategy_context = {
             "target_ticker": ticker,
             "current_price": current_price,
-            "available_buying_power": buying_power,
             "rsi_14_daily": analytics["rsi_14_daily"],
             "high_52w": analytics["high_52w"],
             "low_52w": analytics["low_52w"],
@@ -212,8 +191,8 @@ def run_rsi_strategy(ticker: str, selected_model: str):
         # 4. Streamlined Conditional Output Presentation
         print("\n================ 🏹 STRATEGY ENGINE EVALUATION ================")
         print(f"📊 ASSET UNDER INSPECTION:  {ticker.upper()}")
-        print(f"💵 DAILY CLOSING PRICE:     ${strategy_context['current_price']:.2f}")
-        print(f"⏱️  DAILY RSI (14):          {current_rsi}")
+        print(f"💵 DAILY CLOSING PRICE:      ${strategy_context['current_price']:.2f}")
+        print(f"⏱️  DAILY RSI (14):           {current_rsi}")
         
         print("-------------------- MOVING AVERAGES [SMA | VWSMA] ------")
         if current_rsi >= 50:
@@ -232,8 +211,8 @@ def run_rsi_strategy(ticker: str, selected_model: str):
         print(f"📉 DRAWDOWN FROM HIGH:      {strategy_context['drawdown_from_52w_high_pct']}%")
         print("-------------------- VOLUME METRICS ---------------------")
         print(f"📊 LATEST SESSION VOLUME:   {strategy_context['latest_volume']:,}")
-        print(f"🌊 VOLUME SMA (20-DAY):    {strategy_context['volume_sma20']:,}")
-        print(f"⚡ VOLUME % OF SMA (20):    {strategy_context['volume_pct_of_sma20']}%")
+        print(f"🌊 VOLUME SMA (20-DAY):     {strategy_context['volume_sma20']:,}")
+        print(f"⚡ VOLUME % OF SMA (20):     {strategy_context['volume_pct_of_sma20']}%")
         print("------------------- ENGINE ALGO VECTOR ------------------")
         print(f"🤖 TARGET SIGNAL VECTOR:    {decision.get('action')}")
         print(f"📝 SYSTEM RATIONALE:        {decision.get('reasoning')}")
@@ -241,23 +220,25 @@ def run_rsi_strategy(ticker: str, selected_model: str):
         
         return decision
 
+    except APIError as api_err:
+        print(f"\n❌ Strategy pipeline execution failure: Gemini API Error {api_err.code} ({api_err.message})", file=sys.stderr)
     except Exception as e:
-        print(f"❌ Strategy pipeline execution failure: {e}", file=sys.stderr)
+        print(f"\n❌ Strategy pipeline runtime error: {e}", file=sys.stderr)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Gemini Clean Terminal Matrix Engine Configuration")
     parser.add_argument("ticker", nargs="?", default="SPY", help="Stock ticker symbol (default: SPY)")
     parser.add_argument(
         "--model", 
-        choices=["3.5-flash", "3.1-flash-lite"], 
-        default="3.5-flash", 
+        choices=["3.5", "3.1"], 
+        default="3.1", 
         help="Select model processor tier (default: 3.5-flash)"
     )
     args = parser.parse_args()
     
     model_map = {
-        "3.5-flash": "gemini-3.5-flash",
-        "3.1-flash-lite": "gemini-3.1-flash-lite"
+        "3.5": "gemini-3.5-flash",
+        "3.1": "gemini-3.1-flash-lite"
     }
     
     run_rsi_strategy(args.ticker, model_map[args.model])

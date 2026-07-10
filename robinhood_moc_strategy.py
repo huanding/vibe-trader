@@ -1,146 +1,68 @@
-import os
-import json
-import requests
-import yfinance as yf
-from robinhood_auth import RobinhoodAuth # <-- Import the new manager class
+import sys
+from robinhood_auth import RobinhoodAuth
+from ticker_analyzer import TickerAnalyzer
+from robinhood_trader import RobinhoodTrader
 
-# Strategy Configuration
 SYMBOL = "SPY"
-GATEWAY_URL = "https://agent.robinhood.com/mcp/trading"
 
-# --- STEP 1: INITIALIZE AUTH MANAGEMENT ---
-try:
-    auth = RobinhoodAuth()
-except RuntimeError as e:
-    print(e)
-    exit(1)
+def main():
+    # Initialize Auth Context Layer
+    try:
+        auth = RobinhoodAuth()
+    except RuntimeError as e:
+        print(f"Authentication Setup Failure: {e}")
+        sys.exit(1)
 
-# --- STEP 2: FETCH MARKET DATA VIA YFINANCE ---
-print(f"Fetching market data for {SYMBOL}...")
-ticker = yf.Ticker(SYMBOL)
-info = ticker.info
+    # Initialize Components
+    analyzer = TickerAnalyzer(symbol=SYMBOL, drawdown_threshold=2.0, target_gain_threshold=10.0)
+    trader = RobinhoodTrader(auth_instance=auth)
 
-current_price = info.get("currentPrice") or info.get("regularMarketPrice")
-high_52week = info.get("fiftyTwoWeekHigh")
+    # 1. Update Ingestion Layers
+    if not analyzer.update_market_data():
+        print("Aborting execution due to bad market analytics metrics extraction.")
+        sys.exit(1)
 
-if not current_price or not high_52week:
-    print("Error: Could not retrieve pricing data from yfinance.")
-    exit(1)
-
-drawdown = ((high_52week - current_price) / high_52week) * 100
-print(f"{SYMBOL} Current Price: ${current_price:.2f}")
-print(f"{SYMBOL} 52-Week High: ${high_52week:.2f}")
-print(f"Current Drawdown: {drawdown:.2f}%")
-
-# --- STEP 3: CHECK ROBINHOOD HOLDINGS WITH EXPIRED CAPTURE ---
-positions_payload = {
-    "jsonrpc": "2.0",
-    "method": "tools/call",
-    "params": {
-        "name": "get_equity_positions",
-        "arguments": {"account_number": auth.account_number}
-    },
-    "id": 1
-}
-
-print("\nChecking live portfolio positions...")
-try:
-    headers = auth.get_headers()
-    pos_response = requests.post(GATEWAY_URL, json=positions_payload, headers=headers)
-except RuntimeError as e:
-    print(e)
-    exit(1)
-
-# Mid-transit expiry mitigation loop
-if pos_response.status_code == 401:
-    print("Warning: Access token expired or rejected (401). Retrying with token rotation...")
-    if auth.refresh_access_token():
-        headers = auth.get_headers()
-        pos_response = requests.post(GATEWAY_URL, json=positions_payload, headers=headers)
-
-if pos_response.status_code != 200:
-    print(f"API Error fetching positions: Status {pos_response.status_code}")
-    exit(1)
-
-# --- STEP 4: DATA PARSING ---
-try:
-    raw_text = pos_response.text
-    if raw_text.startswith("event:"):
-        data_line = [line for line in raw_text.splitlines() if line.startswith("data:")][0]
-        inner_json = json.loads(data_line.replace("data: ", ""))
-    else:
-        inner_json = json.loads(raw_text)
-
-    content_str = inner_json["result"]["content"][0]["text"]
-    portfolio_data = json.loads(content_str)
-    positions = portfolio_data.get("data", {}).get("positions", [])
-except Exception as e:
-    print(f"Data Parser Warning: Assuming empty portfolio positions list. Detail: {e}")
-    positions = []
-
-# --- STEP 5: EVALUATE STRATEGY LOGIC STATE MACHINE ---
-active_position = next((p for p in positions if p.get("symbol") == SYMBOL), None)
-order_payload = None
-
-if active_position:
-    avg_buy_price = float(active_position["average_buy_price"])
-    shares_available = float(active_position.get("shares_available_for_sells", 0))
-    current_profit_pct = ((current_price - avg_buy_price) / avg_buy_price) * 100
+    # 2. Extract Portfolio States
+    open_lots = trader.fetch_open_stock_lots()
     
-    print(f"\n>>> STATE: HOLDING POSITION")
-    print(f"Cost Basis: ${avg_buy_price:.2f} | Current Gain: {current_profit_pct:.2f}%")
-    
-    if current_profit_pct >= 10.0:
-        print("🎯 TARGET HIT! Preparing to take 10% profit.")
-        if shares_available > 0:
-            order_payload = {
-                "name": "place_equity_order",
-                "arguments": {
-                    "account_number": auth.account_number,
-                    "symbol": SYMBOL,
-                    "side": "sell",
-                    "type": "market",
-                    "time_in_force": "gtd",
-                    "quantity": str(shares_available)
-                }
+    # 3. Check for Active Asset Target Flags
+    has_holdings = any(lot.get("symbol") == SYMBOL for lot in open_lots)
+    order_arguments = None
+
+    if has_holdings:
+        target_lot_data = analyzer.evaluate_tax_lots(open_lots)
+        
+        if target_lot_data:
+            print(f"\n🎯 TARGET HIT! Chosen Lot Gain: {target_lot_data['gain_pct']:.2f}%")
+            order_arguments = {
+                "account_number": auth.account_number,
+                "symbol": SYMBOL,
+                "side": "sell",
+                "type": "market",
+                "time_in_force": "gfd",
+                "quantity": str(target_lot_data["quantity"])
             }
         else:
-            print("Error: Profit target hit but shares are unconfirmed or pending settlement.")
+            print("\n>>> STATE: HOLDING. No individual tax lots meet execution thresholds.")
+            
     else:
-        print("Holding position. Waiting for asset appreciation to reach +10.00%.")
-
-else:
-    print(f"\n>>> STATE: FLAT CASH")
-    DRAWDOWN_THRESHOLD = 2.0
-    if drawdown >= DRAWDOWN_THRESHOLD:
-        print("🔥 DRAWDOWN TRIGGERED! Ordering fractional entry...")
-        order_payload = {
-            "name": "place_equity_order",
-            "arguments": {
+        print(f"\n>>> STATE: FLAT CASH (No holdings in {SYMBOL})")
+        if analyzer.should_trigger_buy():
+            print("🔥 DRAWDOWN TRIGGERED! Ordering fractional entry...")
+            order_arguments = {
                 "account_number": auth.account_number,
                 "symbol": SYMBOL,
                 "side": "buy",
                 "type": "market",
-                "time_in_force": "gtd",
+                "time_in_force": "gfd",
                 "dollar_amount": "1.00"
             }
-        }
-    else:
-        print(f"No buy signal triggered. S&P 500 premium remains outside the {DRAWDOWN_THRESHOLD}% threshold.")
+        else:
+            print(f"No buy signal triggered. Asset premium matches target limits.")
 
-# --- STEP 6: EXECUTE ROUTED TRADING ORDER ---
-if order_payload:
-    trade_payload = {
-        "jsonrpc": "2.0",
-        "method": "tools/call",
-        "params": order_payload,
-        "id": 2
-    }
-    
-    print(f"\nSubmitting trade execution request via tool: {order_payload['name']}...")
-    trade_response = requests.post(GATEWAY_URL, json=trade_payload, headers=headers)
-    
-    print(f"Gateway HTTP Status Code: {trade_response.status_code}")
-    if trade_response.text:
-        print("--- Order Gateway Stream Output ---")
-        print(trade_response.text)
+    # 4. Route Order to Execution Layer
+    if order_arguments:
+        trader.execute_order(order_arguments)
+
+if __name__ == "__main__":
+    main()

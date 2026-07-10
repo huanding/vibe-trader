@@ -2,5 +2,4 @@ numpy==2.5.1
 protobuf==7.35.1
 pydantic==2.13.4
 Requests==2.34.2
-robin_stocks==3.4.0
 yfinance==1.5.1
