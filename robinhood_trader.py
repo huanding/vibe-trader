@@ -25,7 +25,7 @@ class RobinhoodTrader:
             "jsonrpc": "2.0",
             "method": "tools/call",
             "params": {
-                "name": "get_open_stock_lots",
+                "name": "get_equity_tax_lots",
                 "arguments": {"account_number": self.auth.account_number}
             },
             "id": 1
