@@ -40,7 +40,8 @@ class RobinhoodTrader:
         if response.status_code != 200:
             print(f"API Error fetching positions: Status {response.status_code}")
             return []
-        print("DEBUG RAW RESPONSE:", response.text)    
+        print("--- Open Stock Lots Stream Output ---")
+        print(response.text)
         try:
             raw_text = response.text
             if raw_text.startswith("event:"):
@@ -51,7 +52,7 @@ class RobinhoodTrader:
 
             content_str = inner_json["result"]["content"][0]["text"]
             portfolio_data = json.loads(content_str)
-            return portfolio_data.get("data", {}).get("open_stock_lots", [])
+            return portfolio_data.get("data", {}).get("tax_lots", [])
         except Exception as e:
             print(f"Data Parser Warning: Could not parse lots cleanly. Detail: {e}")
             return []
