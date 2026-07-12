@@ -19,14 +19,17 @@ class RobinhoodTrader:
                 
         return response
 
-    def fetch_open_stock_lots(self) -> list:
+    def fetch_open_stock_lots(self, symbol: str) -> list:
         """Queries the MCP node for structural asset tax lots."""
         payload = {
             "jsonrpc": "2.0",
             "method": "tools/call",
             "params": {
                 "name": "get_equity_tax_lots",
-                "arguments": {"account_number": self.auth.account_number}
+                "arguments": {
+                    "account_number": self.auth.account_number,
+                    "symbol": symbol
+                }
             },
             "id": 1
         }

@@ -23,7 +23,7 @@ def main():
         sys.exit(1)
 
     # 2. Extract Portfolio States
-    open_lots = trader.fetch_open_stock_lots()
+    open_lots = trader.fetch_open_stock_lots(symbol=SYMBOL)
     
     # 3. Check for Active Asset Target Flags
     has_holdings = any(lot.get("symbol") == SYMBOL for lot in open_lots)
