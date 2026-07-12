@@ -3,7 +3,7 @@ from robinhood_auth import RobinhoodAuth
 from ticker_analyzer import TickerAnalyzer
 from robinhood_trader import RobinhoodTrader
 
-SYMBOL = "SPY"
+SYMBOL = "QQQ"
 
 def main():
     # Initialize Auth Context Layer
@@ -14,7 +14,7 @@ def main():
         sys.exit(1)
 
     # Initialize Components
-    analyzer = TickerAnalyzer(symbol=SYMBOL, drawdown_threshold=2.0, target_gain_threshold=10.0)
+    analyzer = TickerAnalyzer(symbol=SYMBOL, drawdown_threshold=5.0, target_gain_threshold=10.0)
     trader = RobinhoodTrader(auth_instance=auth)
 
     # 1. Update Ingestion Layers
