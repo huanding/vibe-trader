@@ -2,8 +2,8 @@ name: Robinhood MoC Order
 
 on:
   schedule:
-    # 12:45 PM Pacific Time, Monday through Friday
-    - cron: '45 12 * * 1-5'
+    # 12:05 PM Pacific Time, Monday through Friday
+    - cron: '5 12 * * MON-FRI'
       timezone: 'America/Los_Angeles'
   workflow_dispatch:
 
