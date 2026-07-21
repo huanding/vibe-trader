@@ -2,7 +2,6 @@ import os
 import sys
 import json
 import argparse
-import numpy as np
 import yfinance as yf
 from google import genai
 from google.genai import types
@@ -102,7 +101,7 @@ def fetch_market_analytics(ticker: str, period_rsi: int = 14) -> dict:
     }
 
 def run_rsi_strategy(ticker: str, selected_model: str):
-    print(f"📡 Gathering metrics payload...")
+    print("📡 Gathering metrics payload...")
     try:
         analytics = fetch_market_analytics(ticker, period_rsi=14)
         current_price = analytics["latest_close"]
@@ -145,7 +144,7 @@ def run_rsi_strategy(ticker: str, selected_model: str):
         return
 
     # 3. Connect to selected Gemini Model
-    print(f"🧠 Piping analytics matrix into engine...")
+    print("🧠 Piping analytics matrix into engine...")
     api_key = os.getenv("GEMINI_API_KEY", os.getenv("GOOGLE_API_KEY"))
     if not api_key:
         print("❌ Error: Missing API keys in environment.", file=sys.stderr)

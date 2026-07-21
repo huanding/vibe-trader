@@ -24,9 +24,12 @@ def main():
 
     # 2. Extract Portfolio States
     open_lots = trader.fetch_open_stock_lots(symbol=SYMBOL)
-    
+    if open_lots is None:  # Ensure trader returns None on auth error rather than []
+        print("❌ Authentication failed when fetching portfolio. Aborting strategy run.")
+        sys.exit(1)
+
     # 3. Check for Active Asset Target Flags
-    has_holdings = any(lot.get("symbol") == SYMBOL for lot in open_lots)
+    has_holdings = len(open_lots) > 0
     order_arguments = None
 
     if has_holdings:
@@ -58,11 +61,16 @@ def main():
                 "dollar_amount": "1.00"
             }
         else:
-            print(f"No buy signal triggered. Asset premium matches target limits.")
+            print("No buy signal triggered. Asset premium matches target limits.")
 
     # 4. Route Order to Execution Layer
     if order_arguments:
-        trader.execute_order(order_arguments)
+        success = trader.execute_order(order_arguments)
+        if success:
+            print("✅ Order placed successfully.")
+        else:
+            print("❌ Order placement failed.")
+            sys.exit(1)
 
 if __name__ == "__main__":
     main()

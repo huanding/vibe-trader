@@ -3,13 +3,13 @@ name: Robinhood MoC Order
 on:
   schedule:
     # 12:05 PM Pacific Time, Monday through Friday
-    - cron: '5 12 * * MON-FRI'
+    - cron: '15 12 * * MON-FRI'
       timezone: 'America/Los_Angeles'
   workflow_dispatch:
 
 permissions:
-  actions: read
-  contents: write
+  actions: write
+  contents: read
 
 jobs:
   run-trader:
@@ -32,21 +32,23 @@ jobs:
             pip install requests yfinance
           fi
 
-      # --- STEP 1: DOWNLOAD & DECRYPT PREVIOUS ARTIFACT ---
-      - name: Download Latest Token Artifact
+      # --- STEP 1: DOWNLOAD PREVIOUS ARTIFACT FROM LATEST SUCCESSFUL RUN ---
+      - name: Download Latest Encrypted Token Artifact
+        uses: dawidd6/action-download-artifact@v21
+        with:
+          name: robinhood-session-encrypted
+          name_is_regexp: false
+          # Pulls artifact specifically from the last successful execution of this workflow
+          workflow_conclusion: success
+          if_no_artifact_found: warn
+
+      # --- DECRYPT ARTIFACT OR INITIALIZE FROM SEEDS ---
+      - name: Decrypt Token or Initialize Seed
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DECRYPT_KEY: ${{ secrets.TOKEN_ENCRYPTION_KEY }}
         run: |
-          echo "🔍 Searching for encrypted token artifact..."
-          ARTIFACT_URL=$(gh api repos/${{ github.repository }}/actions/artifacts --jq '.artifacts | map(select(.name == "robinhood-session-encrypted")) | first | .archive_download_url')
-          
-          if [ "$ARTIFACT_URL" != "null" ] && [ ! -z "$ARTIFACT_URL" ]; then
-            echo "✅ Artifact found. Fetching..."
-            gh api "$ARTIFACT_URL" > session.zip
-            unzip -o session.zip
-            rm session.zip
-            
+          if [ -f robinhood_token.json.gpg ]; then
+            echo "✅ Artifact found. Decrypting..."
             gpg --quiet --batch --yes --decrypt --passphrase="$DECRYPT_KEY" --output robinhood_token.json robinhood_token.json.gpg
             rm robinhood_token.json.gpg
             echo "🔓 Token decrypted successfully."
@@ -63,9 +65,8 @@ jobs:
         run: |
           python ./robinhood_moc_strategy.py
 
-
-      # --- STEP 3: ENCRYPT & UPLOAD ---
-      - name: Encrypt and Upload Fresh Token Artifact
+      # --- STEP 3: ENCRYPT & UPLOAD FRESH ARTIFACT ---
+      - name: Encrypt Fresh Token
         if: always()
         env:
           ENCRYPT_KEY: ${{ secrets.TOKEN_ENCRYPTION_KEY }}
@@ -77,3 +78,11 @@ jobs:
           else
             echo "❌ robinhood_token.json missing. Nothing to encrypt."
           fi
+
+      - name: Upload Fresh Token Artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: robinhood-session-encrypted
+          path: robinhood_token.json.gpg
+          overwrite: true
