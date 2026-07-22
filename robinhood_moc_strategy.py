@@ -1,9 +1,38 @@
 import sys
+import pandas as pd
+import pandas_market_calendars as mcal
 from robinhood_auth import RobinhoodAuth
 from ticker_analyzer import TickerAnalyzer
 from robinhood_trader import RobinhoodTrader
 
 SYMBOL = "QQQ"
+
+def is_market_open() -> bool:
+    """
+    Dynamically checks if the NYSE/NASDAQ regular trading session is open 
+    using pandas_market_calendars. Outputs schedule logs in Pacific Time.
+    """
+    nyse = mcal.get_calendar("NYSE")
+    
+    # Localized current timestamp in UTC
+    now_utc = pd.Timestamp.now(tz="UTC")
+    
+    # Check session status
+    if not nyse.is_open_now(now_utc):
+        today_str = now_utc.tz_convert("America/Los_Angeles").strftime("%Y-%m-%d")
+        schedule = nyse.schedule(start_date=today_str, end_date=today_str)
+        
+        if schedule.empty:
+            print(f"⏰ Market Closed: {today_str} is a weekend or official exchange holiday.")
+        else:
+            # Convert exchange schedule directly to Pacific Time
+            market_open_pt = schedule.iloc[0]["market_open"].tz_convert("America/Los_Angeles").strftime("%I:%M %p PT")
+            market_close_pt = schedule.iloc[0]["market_close"].tz_convert("America/Los_Angeles").strftime("%I:%M %p PT")
+            print(f"⏰ Market Closed: Today's session window is {market_open_pt} - {market_close_pt}.")
+            
+        return False
+        
+    return True
 
 def main():
     # Initialize Auth Context Layer
@@ -65,6 +94,11 @@ def main():
 
     # 4. Route Order to Execution Layer
     if order_arguments:
+        # Dynamic Market Calendar Execution Guard
+        if not is_market_open():
+            print("🛑 Order signal generated, but execution skipped because the exchange is closed.")
+            return
+
         success = trader.execute_order(order_arguments)
         if success:
             print("✅ Order placed successfully.")
