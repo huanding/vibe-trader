@@ -9,29 +9,31 @@ SYMBOL = "QQQ"
 
 def is_market_open() -> bool:
     """
-    Dynamically checks if the NYSE/NASDAQ regular trading session is open 
-    using pandas_market_calendars. Outputs schedule logs in Pacific Time.
+    Dynamically checks if the NYSE regular trading session is open right now.
+    Prints status and schedule in Pacific Time.
     """
     nyse = mcal.get_calendar("NYSE")
-    
-    # Localized current timestamp in UTC
     now_utc = pd.Timestamp.now(tz="UTC")
     
-    # Check session status
-    if not nyse.is_open_now(now_utc):
-        today_str = now_utc.tz_convert("America/Los_Angeles").strftime("%Y-%m-%d")
-        schedule = nyse.schedule(start_date=today_str, end_date=today_str)
-        
-        if schedule.empty:
-            print(f"⏰ Market Closed: {today_str} is a weekend or official exchange holiday.")
-        else:
-            # Convert exchange schedule directly to Pacific Time
-            market_open_pt = schedule.iloc[0]["market_open"].tz_convert("America/Los_Angeles").strftime("%I:%M %p PT")
-            market_close_pt = schedule.iloc[0]["market_close"].tz_convert("America/Los_Angeles").strftime("%I:%M %p PT")
-            print(f"⏰ Market Closed: Today's session window is {market_open_pt} - {market_close_pt}.")
-            
+    # Get today's schedule bounds
+    today_str = now_utc.tz_convert("America/Los_Angeles").strftime("%Y-%m-%d")
+    schedule = nyse.schedule(start_date=today_str, end_date=today_str)
+    
+    # 1. Holiday or Weekend Check
+    if schedule.empty:
+        print(f"⏰ Market Closed: {today_str} is a weekend or official exchange holiday.")
         return False
         
+    # 2. Check if current UTC timestamp falls within today's market_open & market_close
+    market_open = schedule.iloc[0]["market_open"]
+    market_close = schedule.iloc[0]["market_close"]
+    
+    if not (market_open <= now_utc <= market_close):
+        open_pt = market_open.tz_convert("America/Los_Angeles").strftime("%I:%M %p PT")
+        close_pt = market_close.tz_convert("America/Los_Angeles").strftime("%I:%M %p PT")
+        print(f"⏰ Market Closed: Today's session is {open_pt} - {close_pt}.")
+        return False
+
     return True
 
 def main():
