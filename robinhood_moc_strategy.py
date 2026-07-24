@@ -21,7 +21,8 @@ def is_market_open() -> bool:
     
     # 1. Holiday or Weekend Check
     if schedule.empty:
-        print(f"⏰ Market Closed: {today_str} is a weekend or official exchange holiday.")
+        now_pt = now_utc.tz_convert("America/Los_Angeles").strftime("%I:%M %p PT")
+        print(f"⏰ Market Closed (Current Time: {now_pt}): {today_str} is a weekend or official exchange holiday.")
         return False
         
     # 2. Check if current UTC timestamp falls within today's market_open & market_close
@@ -29,9 +30,11 @@ def is_market_open() -> bool:
     market_close = schedule.iloc[0]["market_close"]
     
     if not (market_open <= now_utc <= market_close):
+        now_pt = now_utc.tz_convert("America/Los_Angeles").strftime("%I:%M %p PT")
         open_pt = market_open.tz_convert("America/Los_Angeles").strftime("%I:%M %p PT")
         close_pt = market_close.tz_convert("America/Los_Angeles").strftime("%I:%M %p PT")
-        print(f"⏰ Market Closed: Today's session is {open_pt} - {close_pt}.")
+        
+        print(f"⏰ Market Closed (Current Time: {now_pt}): Today's session is {open_pt} - {close_pt}.")
         return False
 
     return True
@@ -44,8 +47,8 @@ def main():
         print(f"Authentication Setup Failure: {e}")
         sys.exit(1)
 
-    # Initialize Components
-    analyzer = TickerAnalyzer(symbol=SYMBOL, drawdown_threshold=5.0, target_gain_threshold=10.0)
+    # Initialize Components (Updated drawdown_threshold to 6.0%)
+    analyzer = TickerAnalyzer(symbol=SYMBOL, drawdown_threshold=6.0, target_gain_threshold=10.0)
     trader = RobinhoodTrader(auth_instance=auth)
 
     # 1. Update Ingestion Layers
@@ -55,7 +58,7 @@ def main():
 
     # 2. Extract Portfolio States
     open_lots = trader.fetch_open_stock_lots(symbol=SYMBOL)
-    if open_lots is None:  # Ensure trader returns None on auth error rather than []
+    if open_lots is None:  # Ensure trader returns None on auth error
         print("❌ Authentication failed when fetching portfolio. Aborting strategy run.")
         sys.exit(1)
 
@@ -68,6 +71,9 @@ def main():
         
         if target_lot_data:
             print(f"\n🎯 TARGET HIT! Chosen Lot Gain: {target_lot_data['gain_pct']:.2f}%")
+            print("Executing Sell Order as Market Order...")
+            
+            # --- SELL ORDER: MARKET ORDER ---
             order_arguments = {
                 "account_number": auth.account_number,
                 "symbol": SYMBOL,
@@ -82,17 +88,27 @@ def main():
     else:
         print(f"\n>>> STATE: FLAT CASH (No holdings in {SYMBOL})")
         if analyzer.should_trigger_buy():
-            print("🔥 DRAWDOWN TRIGGERED! Ordering fractional entry...")
+            # --- BUY ORDER: LIMIT ORDER (+0.5% BUFFER) ---
+            current_price = analyzer.latest_price
+            limit_price = round(current_price * 1.005, 2)
+            
+            # Convert $1.00 allocation to share quantity
+            target_quantity = round(1.00 / limit_price, 6)
+
+            print("🔥 DRAWDOWN TRIGGERED (6.0%+)! Ordering limit entry...")
+            print(f"Setting Limit Buy Price: ${limit_price} (+0.5% above ${current_price}) | Qty: {target_quantity}")
+            
             order_arguments = {
                 "account_number": auth.account_number,
                 "symbol": SYMBOL,
                 "side": "buy",
-                "type": "market",
+                "type": "limit",
+                "price": str(limit_price),
                 "time_in_force": "gfd",
-                "dollar_amount": "1.00"
+                "quantity": str(target_quantity)
             }
         else:
-            print("No buy signal triggered. Asset premium matches target limits.")
+            print(f"No buy signal triggered. Current drawdown has not hit the 6.0% threshold.")
 
     # 4. Route Order to Execution Layer
     if order_arguments:
