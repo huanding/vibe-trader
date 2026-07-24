@@ -98,8 +98,38 @@ class RobinhoodTrader:
             return False
 
         print(f"Gateway HTTP Status Code: {response.status_code}")
-        if response.text:
-            print("--- Order Gateway Stream Output ---")
-            print(response.text)
-            
-        return response.status_code == 200
+        if not response.text:
+            print("❌ Gateway Error: Empty response body received.")
+            return False
+
+        print("--- Order Gateway Stream Output ---")
+        print(response.text)
+
+        # 1. HTTP level check
+        if response.status_code != 200:
+            return False
+
+        # 2. JSON-RPC Protocol & Tool Result Validation
+        try:
+            # Handle SSE / line-delimited stream responses or raw JSON
+            lines = [line.replace("data: ", "").strip() for line in response.text.split("\n") if line.startswith("data:")]
+            raw_json = lines[-1] if lines else response.text
+            data = json.loads(raw_json)
+
+            # Check for JSON-RPC level error (e.g., code -32602 invalid params)
+            if "error" in data:
+                error_msg = data["error"].get("message", "Unknown RPC Error")
+                print(f"❌ JSON-RPC Error: {error_msg}")
+                return False
+
+            # Check for MCP tool execution failure flag
+            result = data.get("result", {})
+            if result.get("isError", False):
+                print("❌ Tool Execution Error flagged in result.")
+                return False
+
+            return True
+
+        except Exception as e:
+            print(f"⚠️ Failed to parse gateway JSON response: {e}")
+            return False

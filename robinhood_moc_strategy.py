@@ -90,20 +90,20 @@ def main():
         if analyzer.should_trigger_buy():
             # --- BUY ORDER: LIMIT ORDER (+0.5% BUFFER) ---
             current_price = analyzer.current_price
-            limit_price = round(current_price * 1.005, 2)
+            limit_price = round(current_price * 1.002, 2)
             
             # Convert $1.00 allocation to share quantity
             target_quantity = round(1.00 / limit_price, 6)
 
             print("🔥 DRAWDOWN TRIGGERED (6.0%+)! Ordering limit entry...")
-            print(f"Setting Limit Buy Price: ${limit_price} (+0.5% above ${current_price}) | Qty: {target_quantity}")
+            print(f"Setting Limit Buy Price: ${limit_price} (+0.2% above ${current_price}) | Qty: {target_quantity}")
             
             order_arguments = {
                 "account_number": auth.account_number,
                 "symbol": SYMBOL,
                 "side": "buy",
                 "type": "limit",
-                "price": str(limit_price),
+                "limit_price": str(limit_price),
                 "time_in_force": "gfd",
                 "quantity": str(target_quantity)
             }
