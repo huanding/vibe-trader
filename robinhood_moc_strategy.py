@@ -89,7 +89,7 @@ def main():
         print(f"\n>>> STATE: FLAT CASH (No holdings in {SYMBOL})")
         if analyzer.should_trigger_buy():
             # --- BUY ORDER: LIMIT ORDER (+0.5% BUFFER) ---
-            current_price = analyzer.latest_price
+            current_price = analyzer.current_price
             limit_price = round(current_price * 1.005, 2)
             
             # Convert $1.00 allocation to share quantity
