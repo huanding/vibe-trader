@@ -112,10 +112,16 @@ def main():
 
     # 4. Route Order to Execution Layer
     if order_arguments:
-        # Dynamic Market Calendar Execution Guard
-        if not is_market_open():
-            print("🛑 Order signal generated, but execution skipped because the exchange is closed.")
-            return
+        order_type = order_arguments.get("type")
+        market_open = is_market_open()
+
+        # Market orders require an open market; Limit orders can be queued for open.
+        if not market_open:
+            if order_type == "market":
+                print("🛑 Market order generated, but execution skipped because the exchange is closed.")
+                return
+            else:
+                print("🌙 Exchange is closed. Submitting Limit Order to be queued for next Market Open...")
 
         success = trader.execute_order(order_arguments)
         if success:
